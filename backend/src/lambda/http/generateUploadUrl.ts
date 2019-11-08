@@ -3,17 +3,22 @@ import 'source-map-support/register'
 import { APIGatewayProxyEvent, APIGatewayProxyResult, APIGatewayProxyHandler } from 'aws-lambda'
 import * as uuid from 'uuid';
 import * as AWS from 'aws-sdk';
-const docClient = new AWS.DynamoDB.DocumentClient();
+import * as AWSXRay from "aws-xray-sdk";
 
 import { createLogger } from '../../utils/logger'
 const logger = createLogger('generateUploadUrl')
 
+const XAWS = AWSXRay.captureAWS(AWS);
+
 const bucketName = process.env.TODOITEM_S3_BUCKET_NAME;
-const todoItemTable = process.env.TODOITEM_TABLE;
 const urlExpiration = process.env.SIGNED_URL_EXPIRATION;
-const s3 = new AWS.S3({
+const s3 = new XAWS.S3({
   signatureVersion: 'v4'
 });
+
+import {TodoAccess} from "../../utils/TodoAccess";
+
+const todoAccess = new TodoAccess();
 
 export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
   const todoId = event.pathParameters.todoId;
@@ -22,7 +27,7 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
   logger.info("Generating upload URL:", {
     todoId: todoId,
     attachmentId: attachmentId
-  })
+  });
 
   const uploadUrl = s3.getSignedUrl('putObject', {
     Bucket: bucketName,
@@ -30,16 +35,7 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
     Expires: urlExpiration
   });
 
-  await docClient.update({
-    TableName: todoItemTable,
-    Key: {
-      "todoId": todoId
-    },
-    UpdateExpression: "set attachmentUrl = :attachmentUrl",
-    ExpressionAttributeValues: {
-      ":attachmentUrl": `https://${bucketName}.s3.amazonaws.com/${attachmentId}`
-    }
-  }).promise();
+  await todoAccess.updateTodoAttachmentUrl(todoId, attachmentId);
 
   return {
     statusCode: 200,

@@ -1,4 +1,5 @@
 import * as AWS from "aws-sdk";
+import * as AWSXRay from "aws-xray-sdk";
 
 import { DocumentClient } from 'aws-sdk/clients/dynamodb'
 import {TodoItem} from "../models/TodoItem";
@@ -6,12 +7,16 @@ import * as uuid from 'uuid'
 import { createLogger } from './logger'
 import {CreateTodoRequest} from "../requests/CreateTodoRequest";
 import {UpdateTodoRequest} from "../requests/UpdateTodoRequest";
-const logger = createLogger('todoAccess')
+const logger = createLogger('todoAccess');
+
+const bucketName = process.env.TODOITEM_S3_BUCKET_NAME;
+
+const XAWS = AWSXRay.captureAWS(AWS);
 
 export class TodoAccess {
 
     constructor(
-        private readonly docClient: DocumentClient = new AWS.DynamoDB.DocumentClient(),
+        private readonly docClient: DocumentClient = new XAWS.DynamoDB.DocumentClient(),
         private readonly todoTable = process.env.TODOITEM_TABLE,
         private readonly todoTableGsi = process.env.TODOITEM_TABLE_GSI ) {
     }
@@ -92,6 +97,22 @@ export class TodoAccess {
 
         logger.info("Update complete.")
 
+    }
+
+    async updateTodoAttachmentUrl(todoId: string, attachmentUrl: string){
+
+        logger.info(`Updating todoId ${todoId} with attachmentUrl ${attachmentUrl}`)
+
+        await this.docClient.update({
+            TableName: this.todoTable,
+            Key: {
+                "todoId": todoId
+            },
+            UpdateExpression: "set attachmentUrl = :attachmentUrl",
+            ExpressionAttributeValues: {
+                ":attachmentUrl": `https://${bucketName}.s3.amazonaws.com/${attachmentUrl}`
+            }
+        }).promise();
     }
 
 }
